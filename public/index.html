@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeepSeek 行情分析系统</title>
+    <!-- Vue 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <!-- Tailwind CSS with Typography Plugin -->
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+    <!-- Marked.js for Markdown parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        [v-cloak] { display: none; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans antialiased min-h-screen flex flex-col">
+    <div id="app" v-cloak class="flex flex-col flex-1">
+        <!-- 导航栏 -->
+        <nav class="bg-indigo-600 text-white shadow-md">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex items-center justify-between h-16">
+                    <div class="flex items-center cursor-pointer" @click="setView('list')">
+                        <svg class="w-8 h-8 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+                        <span class="font-bold text-xl tracking-tight">DeepSeek 行情分析面板</span>
+                    </div>
+                    <div class="flex space-x-4">
+                        <button @click="setView('list')" :class="{'bg-indigo-700': view === 'list'}" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-indigo-500 transition">信号大厅</button>
+                        <button @click="setView('test')" :class="{'bg-indigo-700': view === 'test'}" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-indigo-500 transition">手动喂数据</button>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- 主内容区 -->
+        <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <!-- 加载状态 -->
+            <div v-if="loading" class="fixed inset-0 bg-white bg-opacity-75 z-50 flex items-center justify-center">
+                <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-indigo-600"></div>
+            </div>
+
+            <!-- 视图：信号列表 -->
+            <div v-if="view === 'list'" class="space-y-6">
+                <div class="flex justify-between items-center">
+                    <h2 class="text-2xl font-bold text-gray-900">最新信号与分析</h2>
+                    <div class="flex space-x-3">
+                        <button @click="clearDatabase" class="text-red-600 hover:text-red-900 flex items-center bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded transition">
+                            <svg class="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                            一键清空
+                        </button>
+                        <button @click="fetchSignals" class="text-indigo-600 hover:text-indigo-900 flex items-center bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded transition">
+                            <svg class="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                            刷新
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="bg-white shadow overflow-hidden sm:rounded-lg border border-gray-200">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">时间</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">交易对</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">方向</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">最新价</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">风险评分</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">AI 分析摘要</th>
+                                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            <tr v-for="signal in signals" :key="signal.id" class="hover:bg-gray-50 transition">
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ formatTime(signal.created_at) }}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">{{ signal.symbol }}</td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <span :class="getDirectionClass(signal.direction)" class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full">
+                                        {{ signal.direction }}
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ signal.last_price || '--' }}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                    <span v-if="signal.risk_score !== null" class="font-medium" :class="getRiskColor(signal.risk_score)">{{ signal.risk_score }} / 5</span>
+                                    <span v-else class="text-gray-400">未知</span>
+                                </td>
+                                <td class="px-6 py-4 text-sm text-gray-500 max-w-xs truncate" :title="signal.report_summary">
+                                    {{ signal.report_summary || '分析中...' }}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                                    <button @click="viewDetail(signal.id)" class="text-indigo-600 hover:text-indigo-900 bg-indigo-50 px-3 py-1 rounded">查看详情</button>
+                                </td>
+                            </tr>
+                            <tr v-if="signals.length === 0">
+                                <td colspan="7" class="px-6 py-8 text-center text-gray-500">暂无行情信号数据，可前往「手动喂数据」页面发送。</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 视图：信号详情与分析报告 -->
+            <div v-if="view === 'detail' && currentSignal" class="space-y-6 animate-fade-in-up">
+                <button @click="setView('list')" class="text-gray-600 hover:text-gray-900 flex items-center">
+                    <svg class="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+                    返回大厅
+                </button>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <!-- 左侧：原始数据 -->
+                    <div class="lg:col-span-1 space-y-6">
+                        <div class="bg-white shadow sm:rounded-lg border border-gray-200 overflow-hidden">
+                            <div class="px-4 py-5 sm:px-6 bg-gray-50 flex justify-between items-center">
+                                <div>
+                                    <h3 class="text-lg leading-6 font-medium text-gray-900">信号快照</h3>
+                                    <p class="mt-1 max-w-2xl text-sm text-gray-500">{{ formatTime(currentSignal.created_at) }}</p>
+                                </div>
+                                <span :class="getDirectionClass(currentSignal.direction)" class="px-3 py-1 text-sm font-bold rounded-full">
+                                    {{ currentSignal.direction }}
+                                </span>
+                            </div>
+                            <div class="border-t border-gray-200 px-4 py-5 sm:p-0">
+                                <dl class="sm:divide-y sm:divide-gray-200">
+                                    <div class="py-3 sm:py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                                        <dt class="text-sm font-medium text-gray-500">交易对</dt>
+                                        <dd class="mt-1 text-sm font-bold text-gray-900 sm:mt-0 sm:col-span-2">{{ currentSignal.symbol }}</dd>
+                                    </div>
+                                    <div class="py-3 sm:py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                                        <dt class="text-sm font-medium text-gray-500">入场价</dt>
+                                        <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">{{ currentSignal.entry_price || '--' }}</dd>
+                                    </div>
+                                    <div class="py-3 sm:py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                                        <dt class="text-sm font-medium text-gray-500">止损价</dt>
+                                        <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">{{ currentSignal.stop_loss || '--' }}</dd>
+                                    </div>
+                                    <div class="py-3 sm:py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                                        <dt class="text-sm font-medium text-gray-500">流动性预警</dt>
+                                        <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
+                                            <div v-if="currentSignal.liquidity_alerts && Object.keys(currentSignal.liquidity_alerts).length">
+                                                <span v-if="Array.isArray(currentSignal.liquidity_alerts)">
+                                                    <span v-for="(alert, i) in currentSignal.liquidity_alerts" :key="i" class="inline-block bg-red-100 text-red-800 text-xs px-2 py-1 rounded mr-1 mb-1">{{ alert }}</span>
+                                                </span>
+                                                <span v-else>
+                                                    <span v-for="(status, alertName) in currentSignal.liquidity_alerts" :key="alertName" 
+                                                          class="inline-flex items-center text-xs px-2 py-1 rounded mr-2 mb-2 border"
+                                                          :class="status.includes('触发') || status.includes('异常') ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200'">
+                                                        <span class="font-medium mr-1">{{ alertName }}:</span> {{ status }}
+                                                    </span>
+                                                </span>
+                                            </div>
+                                            <span v-else class="text-gray-400">无预警数据</span>
+                                        </dd>
+                                    </div>
+                                    <div class="py-3 sm:py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                                        <dt class="text-sm font-medium text-gray-500">做多条件</dt>
+                                        <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
+                                            <pre class="text-xs bg-gray-50 p-2 rounded border">{{ formatJSON(currentSignal.long_conditions) }}</pre>
+                                        </dd>
+                                    </div>
+                                    <div class="py-3 sm:py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                                        <dt class="text-sm font-medium text-gray-500">做空条件</dt>
+                                        <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
+                                            <pre class="text-xs bg-gray-50 p-2 rounded border">{{ formatJSON(currentSignal.short_conditions) }}</pre>
+                                        </dd>
+                                    </div>
+                                </dl>
+                            </div>
+                        </div>
+
+                        <div class="bg-white shadow sm:rounded-lg border border-gray-200 overflow-hidden">
+                            <div class="px-4 py-3 bg-gray-50 border-b border-gray-200">
+                                <h3 class="text-sm font-medium text-gray-900">核心指标速览</h3>
+                            </div>
+                            <div class="p-4 grid grid-cols-2 gap-4">
+                                <div>
+                                    <p class="text-xs text-gray-500">收盘价 (Close)</p>
+                                    <p class="font-semibold">{{ currentSignal.close || '--' }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-gray-500">RSI(14)</p>
+                                    <p class="font-semibold">{{ currentSignal.rsi14 || '--' }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-gray-500">MACD / Signal / Hist</p>
+                                    <p class="font-semibold text-xs">{{ currentSignal.macd || '-' }} / {{ currentSignal.macd_signal || '-' }} / {{ currentSignal.macd_hist || '-' }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-gray-500">ADX / +DI / -DI</p>
+                                    <p class="font-semibold text-xs">{{ currentSignal.adx || '-' }} / {{ currentSignal.plus_di || '-' }} / {{ currentSignal.minus_di || '-' }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-gray-500">ATR(14)</p>
+                                    <p class="font-semibold">{{ currentSignal.atr14 || '--' }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-gray-500">VWAP</p>
+                                    <p class="font-semibold">{{ currentSignal.vwap || '--' }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-gray-500">深度比 (Depth Ratio)</p>
+                                    <p class="font-semibold">{{ currentSignal.depth_ratio || '--' }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-gray-500">价差 (Spread)</p>
+                                    <p class="font-semibold">{{ currentSignal.spread || '--' }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-gray-500">CVD / 相关性</p>
+                                    <p class="font-semibold text-xs">{{ currentSignal.cvd || '-' }} / {{ currentSignal.cvd_price_corr || '-' }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-gray-500">非流动性 (ILLIQ)</p>
+                                    <p class="font-semibold">{{ currentSignal.illiq || '--' }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-gray-500">HV% / ROC%</p>
+                                    <p class="font-semibold text-xs">{{ currentSignal.hv_percent || '-' }} / {{ currentSignal.roc_percent || '-' }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-gray-500">斜率 (Slope $/h)</p>
+                                    <p class="font-semibold">{{ currentSignal.slope_dollar_per_hour || '--' }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-gray-500">多头/空头评分</p>
+                                    <p class="font-semibold text-xs text-indigo-600">{{ currentSignal.long_score !== null ? currentSignal.long_score : '-' }} / {{ currentSignal.short_score !== null ? currentSignal.short_score : '-' }}</p>
+                                </div>
+                                <div class="col-span-2">
+                                    <p class="text-xs text-gray-500">资金费率(瞬时 / 1H / 上期 / 今日累计)</p>
+                                    <p class="font-semibold text-xs">{{ currentSignal.funding_rate_instant || '-' }} / {{ currentSignal.funding_rate_1h_avg || '-' }} / {{ currentSignal.funding_rate_prev_settled || '-' }} / {{ currentSignal.funding_today_cumulative || '-' }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-gray-500">市场情绪</p>
+                                    <p class="font-semibold text-xs truncate" :title="currentSignal.sentiment">{{ currentSignal.sentiment || '--' }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 右侧：AI 报告 -->
+                    <div class="lg:col-span-2 space-y-6">
+                        <div class="bg-white shadow sm:rounded-lg border border-gray-200">
+                            <div class="px-4 py-4 sm:px-6 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+                                <h3 class="text-lg leading-6 font-bold text-indigo-700 flex items-center">
+                                    <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+                                    DeepSeek AI 分析报告
+                                </h3>
+                                <button @click="reAnalyze(currentSignal.id)" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                                    重新分析
+                                </button>
+                            </div>
+                            <div class="p-6">
+                                <div v-if="currentSignal.reports && currentSignal.reports.length > 0">
+                                    <!-- AI 建议 JSON 提取展示区 -->
+                                    <div v-if="extractedAiJson(currentSignal.reports[0].content)" class="mb-6 bg-indigo-50 rounded-lg p-4 border border-indigo-100">
+                                        <h4 class="text-indigo-800 font-bold mb-2 flex items-center">
+                                            <svg class="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                                            AI 交易计划建议
+                                        </h4>
+                                        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                                            <div>
+                                                <p class="text-xs text-indigo-500">建议方向</p>
+                                                <p class="font-bold text-lg" :class="extractedAiJson(currentSignal.reports[0].content).action === 'open_long' ? 'text-green-600' : (extractedAiJson(currentSignal.reports[0].content).action === 'open_short' ? 'text-red-600' : 'text-gray-600')">
+                                                    {{ extractedAiJson(currentSignal.reports[0].content).action || 'NONE' }}
+                                                </p>
+                                            </div>
+                                            <div>
+                                                <p class="text-xs text-indigo-500">交易对</p>
+                                                <p class="font-bold text-gray-800 mt-1">{{ extractedAiJson(currentSignal.reports[0].content).symbol || '--' }}</p>
+                                            </div>
+                                            <div>
+                                                <p class="text-xs text-indigo-500">建议仓位</p>
+                                                <p class="font-bold text-gray-800 mt-1">{{ extractedAiJson(currentSignal.reports[0].content).position_size || '--' }}</p>
+                                            </div>
+                                            <div>
+                                                <p class="text-xs text-indigo-500">入场点位</p>
+                                                <p class="font-bold text-gray-800 mt-1">{{ extractedAiJson(currentSignal.reports[0].content).entry || '--' }}</p>
+                                            </div>
+                                            <div>
+                                                <p class="text-xs text-indigo-500">止损位</p>
+                                                <p class="font-bold text-gray-800 mt-1">{{ extractedAiJson(currentSignal.reports[0].content).stop_loss || '--' }}</p>
+                                            </div>
+                                            <div class="col-span-2 md:col-span-3 lg:col-span-6 bg-white rounded p-2 border border-indigo-50 flex justify-around mt-2">
+                                                <div class="text-center">
+                                                    <p class="text-[10px] text-gray-400">TP1</p>
+                                                    <p class="font-semibold text-sm text-green-600">{{ extractedAiJson(currentSignal.reports[0].content).tp1 || '--' }}</p>
+                                                </div>
+                                                <div class="text-center border-l border-r px-4 border-gray-100">
+                                                    <p class="text-[10px] text-gray-400">TP2</p>
+                                                    <p class="font-semibold text-sm text-green-600">{{ extractedAiJson(currentSignal.reports[0].content).tp2 || '--' }}</p>
+                                                </div>
+                                                <div class="text-center">
+                                                    <p class="text-[10px] text-gray-400">TP3</p>
+                                                    <p class="font-semibold text-sm text-green-600">{{ extractedAiJson(currentSignal.reports[0].content).tp3 || '--' }}</p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- 原生 JSON 代码块展示 -->
+                                        <div class="mt-4 mt-4 border-t border-indigo-100 pt-3">
+                                            <p class="text-xs text-indigo-500 mb-2 cursor-pointer flex items-center" @click="showRawJson = !showRawJson">
+                                                <svg class="w-4 h-4 mr-1 transition-transform" :class="{'rotate-90': showRawJson}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                                                查看原始返回 JSON
+                                            </p>
+                                            <pre v-if="showRawJson" class="text-xs bg-indigo-900 text-indigo-100 p-3 rounded overflow-x-auto">{{ formatJSON(extractedAiJson(currentSignal.reports[0].content)) }}</pre>
+                                        </div>
+                                    </div>
+
+                                    <!-- 仅显示最新一条报告，附带生成时间 -->
+                                    <div class="mb-4 text-xs text-gray-500">
+                                        报告生成时间: {{ formatTime(currentSignal.reports[0].created_at) }}
+                                    </div>
+                                    
+                                    <!-- 拦截提示UI -->
+                                    <div v-if="currentSignal.reports[0].content.includes('AI分析被拦截')" class="bg-yellow-50 border border-yellow-400 rounded-md p-4 mb-4">
+                                        <div class="flex">
+                                            <div class="flex-shrink-0">
+                                                <svg class="h-5 w-5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+                                                </svg>
+                                            </div>
+                                            <div class="ml-3 w-full">
+                                                <p class="text-sm text-yellow-700 font-medium">
+                                                    {{ currentSignal.reports[0].content }}
+                                                </p>
+                                                <div class="mt-4">
+                                                    <p class="text-sm font-bold text-yellow-800 mb-2">补充缺失指标解锁分析：</p>
+                                                    <textarea v-model="supplementText" rows="4" class="w-full p-2 border border-yellow-300 rounded-md text-sm focus:ring-yellow-500 focus:border-yellow-500" placeholder="在此处粘贴缺失的指标文本，例如：\nADX: 40.30\nMACD: 344.941\n多头评分: 3 / 空头评分: 2"></textarea>
+                                                    <button @click="submitSupplement(currentSignal.id)" :disabled="!supplementText.trim()" class="mt-3 inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md shadow-sm text-white bg-yellow-600 hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 disabled:opacity-50">
+                                                        提交补充数据并解锁分析
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div v-else class="prose prose-indigo max-w-none" v-html="renderMarkdown(cleanReportContent(currentSignal.reports[0].content))"></div>
+                                </div>
+                                <div v-else class="text-center py-12">
+                                    <div class="animate-pulse flex flex-col items-center">
+                                        <svg class="w-12 h-12 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+                                        <p class="text-gray-500 text-lg">AI 分析正在进行中，请稍后刷新...</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 视图：手动喂数据 -->
+            <div v-if="view === 'test'" class="max-w-3xl mx-auto space-y-6">
+                <div class="bg-white shadow sm:rounded-lg border border-gray-200">
+                    <div class="px-4 py-5 sm:px-6 border-b border-gray-200">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900">手动喂数据（支持脏数据测试）</h3>
+                        <p class="mt-1 text-sm text-gray-500">向 /api/v1/signals 接口发送包含嵌套结构的测试 JSON。系统将自动清洗并提取有效字段。</p>
+                    </div>
+                    <div class="p-6">
+                        <textarea v-model="testJson" rows="20" class="w-full p-4 font-mono text-sm border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500 shadow-sm" spellcheck="false"></textarea>
+                        <div class="mt-4 flex justify-between items-center">
+                            <span class="text-sm text-green-600 font-medium" v-if="submitSuccess">✅ 数据提交成功并已触发 AI 分析！</span>
+                            <span v-else></span>
+                            <button @click="submitTest" class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                                提交并触发分析
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted } = Vue;
+
+        const defaultTestJson = `{
+  "exchange": "binance",
+  "source": "aggregator",
+  "data": {
+    "symbol": "BTCUSDT",
+    "direction": "LONG",
+    "entry_price": 78000,
+    "stop_loss": 76500,
+    "risk_amount": 100,
+    "position_size": 0.05,
+    "notional": 3900,
+    "take_profits": [80000, 82000],
+    "long_conditions": { "bullish_fvg": true, "price_gt_vwap": true },
+    "short_conditions": { "bearish_fvg": false },
+    "liquidity_alerts": ["低流动性"],
+    "risk_score": 4,
+    "last_price": 78378.7,
+    "vwap": 78084.41,
+    "atr14": 432.82,
+    "depth_ratio": 0.6,
+    "close": 78332.10,
+    "adx": 40.94,
+    "macd": 376.87,
+    "rsi14": 62.30,
+    "funding_rate_instant": 0.0011,
+    "sentiment": "看多"
+  },
+  "extra_meta": "ignore this"
+}`;
+
+        createApp({
+            setup() {
+                const view = ref('list');
+                const signals = ref([]);
+                const currentSignal = ref(null);
+                const loading = ref(false);
+                const testJson = ref(defaultTestJson);
+                const supplementText = ref('');
+                const submitSuccess = ref(false);
+                const showRawJson = ref(false);
+
+                const fetchSignals = async () => {
+                    loading.value = true;
+                    try {
+                        const res = await fetch('/api/v1/signals');
+                        signals.value = await res.json();
+                    } catch (e) {
+                        console.error('Failed to fetch signals:', e);
+                    }
+                    loading.value = false;
+                };
+
+                const viewDetail = async (id) => {
+                    loading.value = true;
+                    try {
+                        const res = await fetch(`/api/v1/signals/${id}`);
+                        if (!res.ok) throw new Error('Failed to fetch detail');
+                        currentSignal.value = await res.json();
+                        
+                        // Update URL
+                        const url = new URL(window.location);
+                        url.searchParams.set('id', id);
+                        window.history.pushState({ id }, '', url);
+                        
+                        view.value = 'detail';
+                    } catch (error) {
+                        alert('获取详情失败');
+                        console.error(error);
+                        // If direct link fails, fallback to list view
+                        setView('list');
+                    }
+                    loading.value = false;
+                };
+
+                const reAnalyze = async (id) => {
+                    loading.value = true;
+                    try {
+                        await fetch(`/api/v1/signals/${id}/analyze`, { method: 'POST' });
+                        await viewDetail(id); // 刷新详情
+                    } catch (e) {
+                        alert('重新分析请求失败');
+                    }
+                    loading.value = false;
+                };
+
+                const submitTest = async () => {
+                    submitSuccess.value = false;
+                    
+                    let isJson = false;
+                    try {
+                        JSON.parse(testJson.value);
+                        isJson = true;
+                    } catch (e) {
+                        isJson = false; // 不是 JSON 则按纯文本处理
+                    }
+
+                    loading.value = true;
+                    try {
+                        const res = await fetch('/api/v1/signals', {
+                            method: 'POST',
+                            headers: { 'Content-Type': isJson ? 'application/json' : 'text/plain' },
+                            body: testJson.value
+                        });
+                        
+                        if (!res.ok) {
+                            const err = await res.json();
+                            throw new Error(JSON.stringify(err));
+                        }
+                        
+                        submitSuccess.value = true;
+                        setTimeout(() => { submitSuccess.value = false; }, 3000);
+                        await fetchSignals();
+                    } catch (e) {
+                        alert('提交失败: ' + e.message);
+                    }
+                    loading.value = false;
+                };
+
+                const submitSupplement = async (id) => {
+                    if (!supplementText.value.trim()) return;
+                    loading.value = true;
+                    try {
+                        const res = await fetch(`/api/v1/signals/${id}`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'text/plain' },
+                            body: supplementText.value
+                        });
+                        if (!res.ok) {
+                            const err = await res.json();
+                            throw new Error(JSON.stringify(err));
+                        }
+                        supplementText.value = ''; // 清空输入框
+                        await viewDetail(id); // 刷新详情，此时如果数据全了，后台已在跑新的分析报告，这里获取到的可能是最新状态或者还在分析中
+                    } catch (e) {
+                        alert('补充数据失败: ' + e.message);
+                    }
+                    loading.value = false;
+                };
+
+                const clearDatabase = async () => {
+                    if (!confirm('警告：此操作将永久删除所有交易信号和分析报告！\n您确定要继续吗？')) {
+                        return;
+                    }
+                    loading.value = true;
+                    try {
+                        const res = await fetch('/api/v1/signals/clear', {
+                            method: 'DELETE'
+                        });
+                        
+                        if (!res.ok) {
+                            throw new Error('清空失败');
+                        }
+                        
+                        alert('✅ 数据库已成功清空！');
+                        await fetchSignals();
+                    } catch (e) {
+                        alert('清空数据库时出错: ' + e.message);
+                    }
+                    loading.value = false;
+                };
+
+                // UI Helper Methods
+                const formatTime = (isoString) => {
+                    if (!isoString) return '--';
+                    return isoString.replace('T', ' ').replace('+08:00', '');
+                };
+
+                const formatJSON = (obj) => {
+                    if (!obj) return '无';
+                    return JSON.stringify(obj, null, 2);
+                };
+
+                const renderMarkdown = (text) => {
+                    if (!text) return '';
+                    return marked.parse(text);
+                };
+
+                const extractedAiJson = (text) => {
+                    if (!text) return null;
+                    // 尝试匹配标准的闭合代码块
+                    let match = text.match(/```json\s*([\s\S]*?)\s*```/);
+                    // 如果因为某种原因没闭合，尝试匹配到结尾
+                    if (!match) {
+                        match = text.match(/```json\s*([\s\S]*)$/);
+                    }
+
+                    if (match && match[1]) {
+                        try {
+                            let jsonStr = match[1];
+                            // 极其简陋的修复可能被截断的 JSON (补充结尾的括号)
+                            if (!jsonStr.trim().endsWith('}')) {
+                                jsonStr += '\n}';
+                            }
+                            return JSON.parse(jsonStr);
+                        } catch (e) {
+                            return null;
+                        }
+                    }
+                    return null;
+                };
+
+                const cleanReportContent = (text) => {
+                    if (!text) return '';
+                    // 移除 JSON 块，不在 markdown 正文中重复展示
+                    return text.replace(/```json\s*([\s\S]*?)\s*```/, '');
+                };
+
+                const getDirectionClass = (dir) => {
+                    if (dir === 'LONG') return 'bg-green-100 text-green-800';
+                    if (dir === 'SHORT') return 'bg-red-100 text-red-800';
+                    return 'bg-gray-100 text-gray-800';
+                };
+
+                const getRiskColor = (score) => {
+                    if (score <= 2) return 'text-green-600';
+                    if (score === 3) return 'text-yellow-600';
+                    return 'text-red-600';
+                };
+
+                onMounted(() => {
+                    // Check if URL has ?id=xx parameter to directly open report
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const reportId = urlParams.get('id');
+                    
+                    if (reportId) {
+                        viewDetail(reportId);
+                    } else {
+                        fetchSignals();
+                    }
+                });
+
+                // Update URL when switching views
+                const setView = (newView) => {
+                    view.value = newView;
+                    if (newView === 'list' || newView === 'test') {
+                        const url = new URL(window.location);
+                        url.searchParams.delete('id');
+                        window.history.pushState({}, '', url);
+                    }
+                };
+
+                return {
+                    view, signals, currentSignal, loading, testJson, supplementText, submitSuccess, showRawJson,
+                    fetchSignals, viewDetail, reAnalyze, submitTest, submitSupplement, clearDatabase, setView,
+                    formatTime, formatJSON, renderMarkdown, extractedAiJson, cleanReportContent, getDirectionClass, getRiskColor
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
