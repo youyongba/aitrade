@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import config from '../config.js';
-import { insertAnalysisReport } from '../db.js';
+import { insertAnalysisReport, deleteInterceptReports } from '../db.js';
 
 const openai = new OpenAI({
   baseURL: 'https://api.deepseek.com',
@@ -58,15 +58,16 @@ export async function generateAnalysis(signalRow) {
     const errorMsg = `AI分析被拦截：当前信号缺失核心指标数据（${missingMetrics.join(', ')}），为保证分析的严谨性和胜率，拒绝执行推演。`;
     console.warn(`[generateAnalysis] 拦截信号 #${signalId}: 缺少关键指标 -> ${missingMetrics.join(', ')}`);
     
-    import('../db.js').then(({ deleteInterceptReports, insertAnalysisReport }) => {
-      deleteInterceptReports(signalRow.id);
-      insertAnalysisReport(signalRow.id, errorMsg);
-    });
+    deleteInterceptReports(signalRow.id);
+    insertAnalysisReport(signalRow.id, errorMsg);
 
     return errorMsg;
   }
 
   try {
+    // 既然指标已经集齐并开始分析，先删除数据库中该信号历史的“拦截报告”，以便前端能正确显示“正在分析中”的 loading 状态
+    deleteInterceptReports(signalRow.id);
+
     const symbolClean = signalRow.symbol ? signalRow.symbol.replace(/[^A-Za-z]/g, '') : 'BTC';
     const latestNews = await fetchLatestNews(symbolClean);
 
